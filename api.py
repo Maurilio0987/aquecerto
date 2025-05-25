@@ -7,7 +7,7 @@ app = Flask(__name__)
 def home():
 	return jsonify({"message": "online"})
 
-@app.route("kivy/<key>")
+@app.route("/kivy/<key>")
 def kivy(key):
 	return jsonify({f"{key}": {"temperature": random.randint(25, 40),
 				   "brightness": random.randint(0, 100)}})

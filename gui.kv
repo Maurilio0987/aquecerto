@@ -1,18 +1,157 @@
-BoxLayout:
-	orientation: "vertical"
-	BoxLayout:
-		orientation: "horizontal"
-		TextInput:
-			id: code
-			multiline: False
-		Button:
-			text: "Definir"
-	Label:
-		id: code
-		text: "Codigo da campanula"		
-	Label:
-		id: temperature
-		text: "Temperatura: ---"
-	Label:
-		id: brightness
-		text: "Intensidade da Luz: ---"
+#:kivy 2.2.0
+
+<BoxLayout>
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+<Label>
+    color: 0, 0, 0, 1
+
+<Button>
+    bold: True
+    color: 1, 1, 1, 1
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: 0.2, 0.4, 0.8, 1
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [20]
+    
+
+GerenciadorTelas:
+    TelaInicial:
+    TelaCampanulas:
+    TelaAdicionarCampanula:
+    TelaRemoverCampanula:
+
+
+<TelaInicial>:
+    name: "tela_inicial"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 30
+        spacing: 20
+
+        Button:
+            text: "Suas Campânulas"
+            width: self.texture_size[0] + 40
+            font_size: "20sp"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_campanulas"
+
+        Button:
+            text: "Adicionar Campânula"
+            font_size: "20sp"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_adicionar"
+
+        Button:
+            text: "Remover Campânula"
+            font_size: "20sp"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_remover"
+
+        Widget:
+
+
+<TelaCampanulas>:
+    name: "tela_campanulas"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 20
+        spacing: 10
+
+        Label:
+            text: "Suas Campânulas"
+            font_size: '28sp'
+            size_hint_y: None
+            height: "50dp"
+
+        Carousel:
+            id: carousel
+
+        Button:
+            text: "Voltar"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_inicial"
+
+
+<TelaAdicionarCampanula>:
+    name: "tela_adicionar"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 20
+        spacing: 10
+
+        Label:
+            text: "Adicionar Nova Campânula"
+            font_size: '28sp'
+            size_hint_y: None
+            height: "50dp"
+
+        TextInput:
+            id: input_nome
+            hint_text: "Nome da Campânula"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+
+        TextInput:
+            id: input_codigo
+            hint_text: "Código da Campânula"
+            multiline: False
+            size_hint_y: None
+            height: "40dp"
+
+        Button:
+            text: "Adicionar"
+            size_hint_y: None
+            height: "50dp"
+            on_press: root.adicionar_campanula()
+
+        Button:
+            text: "Voltar"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_inicial"
+        Widget:
+
+
+<TelaRemoverCampanula>:
+    name: "tela_remover"
+    BoxLayout:
+        orientation: "vertical"
+        padding: 20
+        spacing: 10
+
+        Label:
+            text: "Remover Campânulas"
+            font_size: '25sp'
+            size_hint_y: None
+            height: "50dp"
+
+        ScrollView:
+            BoxLayout:
+                id: box_lista
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: 10
+
+        Button:
+            text: "Voltar"
+            size_hint_y: None
+            height: "50dp"
+            on_press: app.root.current = "tela_inicial"

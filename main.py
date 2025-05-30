@@ -1,185 +1,265 @@
-from kivy.app import App
-from kivy.lang import Builder
-from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.carousel import Carousel
-from kivy.uix.label import Label
-from kivy.clock import Clock
-from kivy.uix.button import Button
+import flet as ft
 import json
 import os
 import requests
-
+import threading
+import time
 
 CAMINHO_ARQUIVO = "campanulas.json"
 BASE_URL = "https://aquecerto.onrender.com/kivy/"
 
+def main(page: ft.Page):
+    page.title = "Aquecerto"
+    page.theme_mode = ft.ThemeMode.LIGHT
 
-class TelaInicial(Screen):
-    pass
-
-
-class TelaCampanulas(Screen):
-    evento_atualizacao = None  # Controle do Clock
-
-    def on_pre_enter(self):
-        self.ids.carousel.clear_widgets()
-        self.campanulas = self.carregar_dados()
-        self.caixas = []
-
-        if self.campanulas:
-            for campanula in self.campanulas:
-                box = BoxLayout(orientation="vertical", padding=20, spacing=10)
-
-                label_nome = Label(text=f"Nome: {campanula['nome']}", font_size='24sp')
-                label_codigo = Label(text=f"Código: {campanula['codigo']}", font_size='24sp')
-                label_temperatura = Label(text="Temperatura: --- °C", font_size='24sp')
-                label_brilho = Label(text="Intensidade da luz: --- %", font_size='24sp')
-
-                box.add_widget(label_nome)
-                box.add_widget(label_codigo)
-                box.add_widget(label_temperatura)
-                box.add_widget(label_brilho)
-
-                self.ids.carousel.add_widget(box)
-                self.caixas.append({
-                    "codigo": campanula["codigo"],
-                    "label_temperatura": label_temperatura,
-                    "label_brilho": label_brilho
-                })
-
-            self.evento_atualizacao = Clock.schedule_interval(self.atualizar_dados, 5)
-        else:
-            box = BoxLayout(orientation="vertical", padding=20, spacing=10)
-            box.add_widget(Label(text="Nenhuma campânula cadastrada.", font_size='24sp'))
-            self.ids.carousel.add_widget(box)
-
-    def on_leave(self):
-        if self.evento_atualizacao:
-            self.evento_atualizacao.cancel()
-            self.evento_atualizacao = None
-
-    def atualizar_dados(self, dt):
-        for campanula in self.caixas:
-            codigo = campanula["codigo"]
+    ## ------------------------------
+    ## Carregamento e salvamento JSON
+    ## ------------------------------
+    def carregar_dados():
+        if os.path.exists(CAMINHO_ARQUIVO):
             try:
-                resposta = requests.get(BASE_URL + codigo, timeout=5)
-                if resposta.status_code == 200:
-                    dados_api = resposta.json()[codigo]
-                    temperatura = dados_api["temperature"]
-                    brilho = dados_api["brightness"]
-                else:
-                    temperatura = '---'
-                    brilho = '---'
+                with open(CAMINHO_ARQUIVO, "r") as arq:
+                    return json.load(arq)
             except:
-                temperatura = '---'
-                brilho = '---'
-
-            campanula["label_temperatura"].text = f"Temperatura: {temperatura} °C"
-            campanula["label_brilho"].text = f"Intensidade da luz: {brilho} %"
-
-    def carregar_dados(self):
-        if os.path.exists(CAMINHO_ARQUIVO):
-            with open(CAMINHO_ARQUIVO, "r") as arquivo:
-                try:
-                    return json.load(arquivo)
-                except:
-                    return []
+                return []
         return []
 
+    def salvar_dados(dados):
+        with open(CAMINHO_ARQUIVO, "w") as arq:
+            json.dump(dados, arq, indent=4)
 
-class TelaAdicionarCampanula(Screen):
-    def adicionar_campanula(self):
-        nome = self.ids.input_nome.text.strip()
-        codigo = self.ids.input_codigo.text.strip()
+    ## -------------------------
+    ## Telas (Containers)
+    ## -------------------------
 
-        if nome and codigo:
-            dados = self.carregar_dados()
+    conteudo = ft.Container(alignment=ft.alignment.center, expand=True)
 
-            dados.append({"nome": nome, "codigo": codigo})
-            self.salvar_dados(dados)
+    ## Tela Inicial
+    def tela_inicial():
+        return ft.Column([
+            ft.Text("Menu Principal", size=30, weight=ft.FontWeight.BOLD),
+            ft.ElevatedButton("Suas Campânulas", on_click=lambda _: mostrar_tela(tela_campanulas())),
+            ft.ElevatedButton("Adicionar Campânula", on_click=lambda _: mostrar_tela(tela_adicionar())),
+            ft.ElevatedButton("Remover Campânula", on_click=lambda _: mostrar_tela(tela_remover())),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER)
 
-            self.ids.input_nome.text = ""
-            self.ids.input_codigo.text = ""
+    ## Tela Campânulas
+    stop_atualizacao = False
+    thread_atualizacao = None
 
-            self.manager.current = "tela_inicial"
+    def tela_campanulas():
+        campanulas = carregar_dados()
+        indice_atual = {"valor": 0}
 
-    def carregar_dados(self):
-        if os.path.exists(CAMINHO_ARQUIVO):
-            with open(CAMINHO_ARQUIVO, "r") as arquivo:
-                try:
-                    return json.load(arquivo)
-                except:
-                    return []
-        return []
+        nome_label = ft.Text("", size=20, weight=ft.FontWeight.BOLD)
+        codigo_label = ft.Text("")
+        temp_label = ft.Text("Temperatura: --- °C")
+        brilho_label = ft.Text("Intensidade da luz: --- %")
 
-    def salvar_dados(self, dados):
-        with open(CAMINHO_ARQUIVO, "w") as arquivo:
-            json.dump(dados, arquivo, indent=4)
+        input_min = ft.TextField(label="Temperatura Mínima", keyboard_type="number", width=150)
+        input_max = ft.TextField(label="Temperatura Máxima", keyboard_type="number", width=150)
+
+        def atualizar_labels():
+            if not campanulas:
+                nome_label.value = "Nenhuma campânula"
+                codigo_label.value = ""
+                temp_label.value = ""
+                brilho_label.value = ""
+                input_min.value = ""
+                input_max.value = ""
+                return
+
+            camp = campanulas[indice_atual["valor"]]
+            nome_label.value = camp['nome']
+            codigo_label.value = f"Código: {camp['codigo']}"
+            temp_label.value = ""
+            brilho_label.value = ""
+            input_min.value = ""
+            input_max.value = ""
+            page.update()
+
+        def iniciar_atualizacao():
+            nonlocal thread_atualizacao
+            parar_atualizacao()
+            def atualizar():
+                while not stop_atualizacao:
+                    try:
+                        camp = campanulas[indice_atual["valor"]]
+                        r = requests.get(BASE_URL + camp["codigo"], timeout=5)
+                        if r.status_code == 200:
+                            dados_api = r.json()[camp["codigo"]]
+                            temperatura = dados_api["temperature"]
+                            brilho = dados_api["brightness"]
+                        else:
+                            temperatura = "---"
+                            brilho = "---"
+                    except:
+                        temperatura = "---"
+                        brilho = "---"
+
+                    temp_label.value = f"Temperatura: {temperatura} °C"
+                    brilho_label.value = f"Intensidade da luz: {brilho} %"
+                    page.update()
+                    time.sleep(5)
+
+            thread_atualizacao = threading.Thread(target=atualizar, daemon=True)
+            thread_atualizacao.start()
+
+        def parar_atualizacao():
+            nonlocal stop_atualizacao
+            stop_atualizacao = True
+            time.sleep(0.1)
+            stop_atualizacao = False
+
+        def proximo(_):
+            if not campanulas:
+                return
+            indice_atual["valor"] = (indice_atual["valor"] + 1) % len(campanulas)
+            atualizar_labels()
+            iniciar_atualizacao()
+
+        def anterior(_):
+            if not campanulas:
+                return
+            indice_atual["valor"] = (indice_atual["valor"] - 1) % len(campanulas)
+            atualizar_labels()
+            iniciar_atualizacao()
+
+        def definir(_):
+            if not campanulas:
+                return
+            camp = campanulas[indice_atual["valor"]]
+            codigo = camp["codigo"]
+            try:
+                valor_min = float(input_min.value.strip())
+                valor_max = float(input_max.value.strip())
+            except:
+                print("Erro: entradas inválidas")
+                return
+
+            payload = {
+                codigo: {
+                    "min": valor_min,
+                    "max": valor_max
+                }
+            }
+
+            try:
+                r = requests.post("https://aquecerto.onrender.com/flet/enviar", json=payload, timeout=5)
+                if r.status_code == 200:
+                    print("Dados enviados com sucesso")
+                else:
+                    print("Erro ao enviar dados:", r.status_code)
+            except Exception as e:
+                print("Erro ao conectar:", e)
+
+        atualizar_labels()
+        iniciar_atualizacao()
+
+        return ft.Column([
+            ft.Text("Suas Campânulas", size=25, weight=ft.FontWeight.BOLD),
+
+            ft.Container(
+                content=ft.Column([
+                    nome_label,
+                    codigo_label,
+                    temp_label,
+                    brilho_label,
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=20,
+                bgcolor=ft.Colors.BLUE_50,
+                border_radius=10
+            ),
+
+            # NOVO BLOCO: Inputs e botão
+            ft.Row([
+                ft.Column([input_max, input_min]),
+                ft.ElevatedButton("Definir", on_click=definir),
+            ], alignment=ft.MainAxisAlignment.CENTER),
+
+            ft.Row([
+                ft.ElevatedButton("◀️", on_click=anterior),
+                ft.ElevatedButton("▶️", on_click=proximo)
+            ], alignment=ft.MainAxisAlignment.CENTER),
+
+            ft.ElevatedButton("Voltar", on_click=lambda _: encerrar_voltar())
+        ],
+        expand=True,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
 
-class TelaRemoverCampanula(Screen):
-    def on_pre_enter(self):
-        self.atualizar_lista()
+    def encerrar_voltar():
+        global stop_atualizacao
+        stop_atualizacao = True
+        time.sleep(0.1)
+        stop_atualizacao = False
+        mostrar_tela(tela_inicial())
 
-    def atualizar_lista(self):
-        self.ids.box_lista.clear_widgets()
-        campanulas = self.carregar_dados()
+    ## Tela Adicionar
+    def tela_adicionar():
+        nome = ft.TextField(label="Nome da Campânula")
+        codigo = ft.TextField(label="Código da Campânula")
 
-        if campanulas:
-            for campanula in campanulas:
-                linha = BoxLayout(size_hint_y=None, height="40dp", spacing=10)
+        def adicionar(_):
+            if nome.value.strip() and codigo.value.strip():
+                dados = carregar_dados()
+                dados.append({"nome": nome.value.strip(), "codigo": codigo.value.strip()})
+                salvar_dados(dados)
+                mostrar_tela(tela_inicial())
 
-                label = Label(
-                    text=f"{campanula['nome']} ({campanula['codigo']})",
-                    size_hint_x=0.7,
-                    halign="left",
-                    valign="middle"
-                )
-                label.bind(size=label.setter('text_size'))
+        return ft.Column([
+            ft.Text("Adicionar Nova Campânula", size=25, weight=ft.FontWeight.BOLD),
+            nome,
+            codigo,
+            ft.ElevatedButton("Adicionar", on_click=adicionar),
+            ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-                botao = Button(
-                    text="Remover",
-                    size_hint_x=0.3,
-                    on_press=lambda instance, c=campanula: self.remover(c)
-                )
+    ## Tela Remover
+    def tela_remover():
+        lista = ft.Column(scroll=ft.ScrollMode.ALWAYS)
+        campanulas = carregar_dados()
 
-                linha.add_widget(label)
-                linha.add_widget(botao)
+        def atualizar_lista():
+            campanulas.clear()
+            campanulas.extend(carregar_dados())  # Recarrega do arquivo
 
-                self.ids.box_lista.add_widget(linha)
-        else:
-            self.ids.box_lista.add_widget(Label(text="\n\nNenhuma campânula cadastrada."))
+            lista.controls.clear()
+            if campanulas:
+                for camp in campanulas:
+                    linha = ft.Row([
+                        ft.Text(f"{camp['nome']} ({camp['codigo']})", expand=True),
+                        ft.ElevatedButton("Remover", on_click=lambda e, c=camp: remover(c))
+                    ])
+                    lista.controls.append(linha)
+            else:
+                lista.controls.append(ft.Text("Nenhuma campânula cadastrada."))
+            page.update()
 
-    def remover(self, campanula):
-        dados = self.carregar_dados()
-        dados = [c for c in dados if c != campanula]
-        self.salvar_dados(dados)
-        self.atualizar_lista()
+        def remover(campanula):
+            dados = carregar_dados()
+            dados = [c for c in dados if c != campanula]
+            salvar_dados(dados)
+            atualizar_lista()  # Atualiza a lista na tela
 
-    def carregar_dados(self):
-        if os.path.exists(CAMINHO_ARQUIVO):
-            with open(CAMINHO_ARQUIVO, "r") as arquivo:
-                try:
-                    return json.load(arquivo)
-                except:
-                    return []
-        return []
+        atualizar_lista()
 
-    def salvar_dados(self, dados):
-        with open(CAMINHO_ARQUIVO, "w") as arquivo:
-            json.dump(dados, arquivo, indent=4)
+        return ft.Column([
+            ft.Text("Remover Campânula", size=25, weight=ft.FontWeight.BOLD),
+            lista,
+            ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
+    ## --------------------------
+    ## Função de troca de tela
+    ## --------------------------
+    def mostrar_tela(tela):
+        conteudo.content = tela
+        page.update()
 
-class GerenciadorTelas(ScreenManager):
-    pass
+    ## Inicializa na tela inicial
+    mostrar_tela(tela_inicial())
 
+    page.add(conteudo)
 
-class MeuApp(App):
-    def build(self):
-        gui = Builder.load_file("gui.kv")
-        gui.transition = NoTransition()
-        return gui
-
-
-MeuApp().run()
+ft.app(target=main)

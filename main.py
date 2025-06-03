@@ -6,7 +6,7 @@ import threading
 import time
 
 CAMINHO_ARQUIVO = "campanulas.json"
-BASE_URL = "https://aquecerto.onrender.com/kivy/"
+BASE_URL = "https://aquecerto.onrender.com/app/"
 
 def main(page: ft.Page):
     page.title = "Aquecerto"
@@ -145,7 +145,7 @@ def main(page: ft.Page):
             }
 
             try:
-                r = requests.post("https://aquecerto.onrender.com/flet/enviar", json=payload, timeout=5)
+                r = requests.post(BASE_URL + "/enviar", json=payload, timeout=5)
                 if r.status_code == 200:
                     print("Dados enviados com sucesso")
                 else:

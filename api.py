@@ -14,11 +14,13 @@ def home():
 					"message": "online"})
 
 
-@app.route("/kivy/<code>")
-def kivy(code):
+@app.route("/app/<code>")
+def app(code):
 	if not os.path.exists(f"{code}.json"):
-		return jsonify({"status": "error",
-						"message": "file not found"}), 404
+		return jsonify({f"{code}": {"temperature": random.randint(25, 40), "brightness": random.randint(0, 100)}})
+
+		#return jsonify({"status": "error",
+		#				"message": "file not found"}), 404
 
 	with open(f"{code}.json", "r") as file:
 		data = json.load(file)
@@ -26,9 +28,7 @@ def kivy(code):
 					   f"{code}": data})
 
 
-	#return jsonify({f"{code}": {"temperature": random.randint(25, 40),
-	#					        "brightness": random.randint(0, 100)}})
-
+	
 
 @app.route("/esp32", methods=["POST"])
 def esp32():

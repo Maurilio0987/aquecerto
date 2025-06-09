@@ -24,6 +24,8 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -3 * 3600;  // GMT-3 (ajuste se necessário)
 const int daylightOffset_sec = 0;
 
+const char* servidorAPI = "https://https://aquecerto.onrender.com/esp32";
+
 const char *code = "/codigo.txt";
 const char *config = "/config.txt";
 
@@ -64,6 +66,38 @@ int calcularBrilho(float tempMin, float tempMax, float temperaturaAtual) {
   }
 
   return brilho;
+}
+
+void enviarDadosAPI(float temperatura, int brilho) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(servidorAPI);
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> json;
+    json["code"] = codigo;
+    json["temperature"] = temperatura;
+    json["brightness"] = map(brilho, 0, 255, 0, 100);
+
+    String jsonString;
+    serializeJson(json, jsonString);
+
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode > 0) {
+      Serial.print("Resposta da API: ");
+      Serial.println(httpResponseCode);
+      String payload = http.getString();
+      Serial.println(payload);
+    } else {
+      Serial.print("Erro na requisição: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi desconectado.");
+  }
 }
 
 String carregarCodigo(const char *arquivo) {
@@ -229,6 +263,8 @@ void loop() {
     brightness = calcularBrilho(minTemp, maxTemp, temperature);
 
     light.setBrightness(brightness);
+    
+    enviarDadosAPI(temperature, brightness);
 
 
     // --- Exibição no LCD ---

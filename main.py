@@ -145,7 +145,7 @@ def main(page: ft.Page):
             }
 
             try:
-                r = requests.post(BASE_URL + "/enviar", json=payload, timeout=5)
+                r = requests.post(BASE_URL + "/config/" + codigo, json=payload, timeout=5)
                 if r.status_code == 200:
                     print("Dados enviados com sucesso")
                 else:

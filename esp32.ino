@@ -7,6 +7,8 @@
 #include "time.h"
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
+
 
 #define DHTPIN 4
 #define DHTTYPE DHT11
@@ -24,22 +26,26 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = -3 * 3600;  // GMT-3 (ajuste se necessário)
 const int daylightOffset_sec = 0;
 
-const char* servidorAPI = "https://https://aquecerto.onrender.com/esp32";
+const char* servidorAPI = "https://aquecerto.onrender.com/esp32";
 
 const char *code = "/codigo.txt";
 const char *config = "/config.txt";
+
+unsigned long tempoUltimaTela = 0;
+const unsigned long intervaloTela = 5000;  // 5 segundos
+int estadoDisplay = 0;  // 0: temp e luz, 1: min/max, 2: código
 
 String ultimaData = "";
 
 
 String codigo;
-float minTemp;
-float maxTemp;
+float tempMax;
+float tempMin;
 int dia;
 
 // ======= Wi-Fi ==========
-const char* ssid = "SEU_SSID";
-const char* password = "SUA_SENHA";
+const char* ssid = "iPhone de Gabriel";
+const char* password = "senha123";
 
 // Função para gerar código aleatório de 6 caracteres alfanuméricos
 String gerarCodigo() {
@@ -68,36 +74,46 @@ int calcularBrilho(float tempMin, float tempMax, float temperaturaAtual) {
   return brilho;
 }
 
-void enviarDadosAPI(float temperatura, int brilho) {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(servidorAPI);
-    http.addHeader("Content-Type", "application/json");
+void atualizarLCD(float temperatura, int brilho) {
+  int percent = map(brilho, 0, 255, 0, 100);
 
-    StaticJsonDocument<256> json;
-    json["code"] = codigo;
-    json["temperature"] = temperatura;
-    json["brightness"] = map(brilho, 0, 255, 0, 100);
+  lcd.clear();
 
-    String jsonString;
-    serializeJson(json, jsonString);
+  if (estadoDisplay == 0) {
+    // Exibe temperatura atual e luz
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(temperatura, 1);
+    lcd.print(" C");
 
-    int httpResponseCode = http.POST(jsonString);
+    lcd.setCursor(0, 1);
+    lcd.print("Luz: ");
+    lcd.print(percent);
+    lcd.print(" %");
 
-    if (httpResponseCode > 0) {
-      Serial.print("Resposta da API: ");
-      Serial.println(httpResponseCode);
-      String payload = http.getString();
-      Serial.println(payload);
-    } else {
-      Serial.print("Erro na requisição: ");
-      Serial.println(httpResponseCode);
-    }
+  } else if (estadoDisplay == 1) {
+    // Exibe temp min e max
+    lcd.setCursor(0, 0);
+    lcd.print("Min: ");
+    lcd.print(tempMin, 1);
+    lcd.print(" C");
 
-    http.end();
-  } else {
-    Serial.println("WiFi desconectado.");
+    lcd.setCursor(0, 1);
+    lcd.print("Max: ");
+    lcd.print(tempMax, 1);
+    lcd.print(" C");
+
+  } else if (estadoDisplay == 2) {
+    // Exibe código
+    lcd.setCursor(0, 0);
+    lcd.print("Codigo:");
+
+    lcd.setCursor(0, 1);
+    lcd.print(codigo);
   }
+
+  // Atualiza para próxima tela no próximo ciclo
+  estadoDisplay = (estadoDisplay + 1) % 3;
 }
 
 String carregarCodigo(const char *arquivo) {
@@ -164,6 +180,42 @@ void carregarConfig(const char* arquivo) {
     salvarConfig(arquivo);
   }
 }
+
+
+void enviarDadosAPI(float temperatura, int brilho) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin("https://aquecerto.onrender.com/esp32");  // Corrigido o endereço
+    http.addHeader("Content-Type", "application/json");
+
+    StaticJsonDocument<256> json;
+    json["code"] = codigo;
+    json["temperature"] = temperatura;
+    json["brightness"] = map(brilho, 0, 255, 0, 100);
+    json["min"] = tempMin;
+    json["max"] = tempMax;
+
+    String jsonString;
+    serializeJson(json, jsonString);
+
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode > 0) {
+      Serial.print("Resposta da API: ");
+      Serial.println(httpResponseCode);
+      String payload = http.getString();
+      Serial.println(payload);
+    } else {
+      Serial.print("Erro na requisição: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi desconectado.");
+  }
+}
+
 
 void salvarConfig(const char* arquivo) {
   StaticJsonDocument<512> doc;
@@ -254,37 +306,25 @@ void loop() {
 
 
 
-
-
   float temperature = dht.readTemperature();
   int brightness = 0;
 
   if (!isnan(temperature)) {
-    brightness = calcularBrilho(minTemp, maxTemp, temperature);
-
+    brightness = calcularBrilho(tempMin, tempMax, temperature);
     light.setBrightness(brightness);
-    
     enviarDadosAPI(temperature, brightness);
 
+    if (millis() - tempoUltimaTela >= intervaloTela) {
+      tempoUltimaTela = millis();
+      atualizarLCD(temperature, brightness);
+    }
 
-    // --- Exibição no LCD ---
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Temp: ");
-    lcd.print(temperature, 1);  // 1 casa decimal
-    lcd.print(" C");
-
-    lcd.setCursor(0, 1);
-    lcd.print("Luz: ");
-    int percent = map(brightness, 0, 255, 0, 100);
-    lcd.print(percent);
-    lcd.print(" %");
-  } else {
-    Serial.println("Erro ao ler o sensor!");
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Sensor erro!");
-  }
+} else {
+  Serial.println("Erro ao ler o sensor!");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Sensor erro!");
+}
 
   delay(2000);
 }

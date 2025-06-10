@@ -53,8 +53,11 @@ def main(page: ft.Page):
 
         nome_label = ft.Text("", size=20, weight=ft.FontWeight.BOLD)
         codigo_label = ft.Text("")
-        temp_label = ft.Text("Temperatura: --- °C")
+        temp_label = ft.Text("Temperatura Atual: --- °C")
         brilho_label = ft.Text("Intensidade da luz: --- %")
+
+        tempmax_label = ft.Text("Temperatura Mínima: --- °C")
+        tempmin_label = ft.Text("Temperatura Máxima: --- %")
 
         input_min = ft.TextField(label="Temperatura Mínima", keyboard_type="number", width=150)
         input_max = ft.TextField(label="Temperatura Máxima", keyboard_type="number", width=150)
@@ -65,6 +68,8 @@ def main(page: ft.Page):
                 codigo_label.value = ""
                 temp_label.value = ""
                 brilho_label.value = ""
+                tempmax_label.value = ""
+                tempmin_label.value = ""
                 input_min.value = ""
                 input_max.value = ""
                 return
@@ -74,6 +79,8 @@ def main(page: ft.Page):
             codigo_label.value = f"Código: {camp['codigo']}"
             temp_label.value = ""
             brilho_label.value = ""
+            tempmax_label.value = ""
+            tempmin_label.value = ""
             input_min.value = ""
             input_max.value = ""
             page.update()
@@ -90,15 +97,23 @@ def main(page: ft.Page):
                             dados_api = r.json()[camp["codigo"]]
                             temperatura = dados_api["temperature"]
                             brilho = dados_api["brightness"]
+                            max = dados_api["max"]
+                            min = dados_api["min"]
                         else:
                             temperatura = "---"
                             brilho = "---"
+                            max = "---"
+                            min = "---"
                     except:
                         temperatura = "---"
                         brilho = "---"
+                        max = "---"
+                        min = "---"
 
                     temp_label.value = f"Temperatura: {temperatura} °C"
                     brilho_label.value = f"Intensidade da luz: {brilho} %"
+                    tempmax_label = f"Temperatura Mínima: {max} °C"
+                    tempmin_label = f"Temperatura Máxima: {min} °C"
                     page.update()
                     time.sleep(5)
 
@@ -165,6 +180,8 @@ def main(page: ft.Page):
                     codigo_label,
                     temp_label,
                     brilho_label,
+                    tempmax_label,
+                    tempmin_label
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=20,
                 bgcolor=ft.Colors.BLUE_50,

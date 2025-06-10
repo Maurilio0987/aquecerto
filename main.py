@@ -96,6 +96,7 @@ def main(page: ft.Page):
                         if r.status_code == 200:
                             dados_api = r.json()[camp["codigo"]]
                             temperatura = dados_api["temperature"]
+
                             brilho = dados_api["brightness"]
                             max = dados_api["max"]
                             min = dados_api["min"]
@@ -112,8 +113,8 @@ def main(page: ft.Page):
 
                     temp_label.value = f"Temperatura: {temperatura} °C"
                     brilho_label.value = f"Intensidade da luz: {brilho} %"
-                    tempmax_label = f"Temperatura Mínima: {max} °C"
-                    tempmin_label = f"Temperatura Máxima: {min} °C"
+                    tempmax_label.value = f"Temperatura Mínima: {max} °C"
+                    tempmin_label.value = f"Temperatura Máxima: {min} °C"
                     page.update()
                     time.sleep(5)
 

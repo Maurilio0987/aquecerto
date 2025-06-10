@@ -27,7 +27,9 @@ def app_get_data(code):
         return jsonify({
             code: {
                 "temperature": random.randint(25, 40),
-                "brightness": random.randint(0, 100)
+                "brightness": random.randint(0, 100),
+                "max": random.randint(25, 40),
+                "min": random.randint(25, 40)
             }
         })
         
@@ -66,7 +68,7 @@ def esp32_post_data():
 # ================================
 # 📥 Rota para obter configuração min/max/dias
 # ================================
-@app.route("/esp32/config/<code>")
+@app.route("esp32/config/<code>")
 def get_config(code):
     caminho = f"config_{code}.json"
 
@@ -87,7 +89,7 @@ def get_config(code):
 # ================================
 # 📝 Rota para salvar nova configuração min/max/dias
 # ================================
-@app.route("/app/config/<code>", methods=["POST"])
+@app.route("app/config/<code>", methods=["POST"])
 def set_config(code):
     data = request.json
     caminho = f"config_{code}.json"

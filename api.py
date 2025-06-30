@@ -94,13 +94,13 @@ def get_config(code):
 # ================================
 @app.route("/app/config/<code>", methods=["POST"])
 def set_config(code):
-    data = request.json
+    data = request.json.get("codigo")
     caminho = f"config_{code}.json"
 
     config = {
-        "min": float(data.get("min")),
-        "max": float(data.get("max")),
-        "dias": int(data.get("dias"))
+        "min": float(data["min"]),
+        "max": float(data["max"]),
+        "dias": int(data["dias"])
     }
 
     with open(caminho, "w") as file:

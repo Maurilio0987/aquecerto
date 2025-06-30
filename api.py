@@ -56,16 +56,20 @@ def esp32_post_data():
     brightness = str(dados.get("brightness"))
     min = str(dados.get("min"))
     max = str(dados.get("max"))
+    dias = str(dados.get("dias"))  # <-- ADICIONADO
+
     with open(f"{code}.json", "w") as file:
         json.dump({
             "time": str(datetime.now()),
             "temperature": temperature,
             "brightness": brightness,
-	    "min": min,
-	    "max": max
+            "min": min,
+            "max": max,
+            "dias": dias  # <-- ADICIONADO
         }, file)
 
     return jsonify({"status": "saved", "code": code})
+
 
 
 # ================================

@@ -7,14 +7,12 @@ import time
 
 CAMINHO_ARQUIVO = "campanulas.json"
 BASE_URL = "https://aquecerto.onrender.com/app/"
+CONFIG_URL = "https://aquecerto.onrender.com/esp32/config/"
 
 def main(page: ft.Page):
     page.title = "Aquecerto"
     page.theme_mode = ft.ThemeMode.LIGHT
 
-    ## ------------------------------
-    ## Carregamento e salvamento JSON
-    ## ------------------------------
     def carregar_dados():
         if os.path.exists(CAMINHO_ARQUIVO):
             try:
@@ -28,13 +26,8 @@ def main(page: ft.Page):
         with open(CAMINHO_ARQUIVO, "w") as arq:
             json.dump(dados, arq, indent=4)
 
-    ## -------------------------
-    ## Telas (Containers)
-    ## -------------------------
-
     conteudo = ft.Container(alignment=ft.alignment.center, expand=True)
 
-    ## Tela Inicial
     def tela_inicial():
         return ft.Column([
             ft.Text("Menu Principal", size=30, weight=ft.FontWeight.BOLD),
@@ -43,7 +36,6 @@ def main(page: ft.Page):
             ft.ElevatedButton("Remover Campânula", on_click=lambda _: mostrar_tela(tela_remover())),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER)
 
-    ## Tela Campânulas
     stop_atualizacao = False
     thread_atualizacao = None
 
@@ -55,12 +47,14 @@ def main(page: ft.Page):
         codigo_label = ft.Text("")
         temp_label = ft.Text("Temperatura Atual: --- °C")
         brilho_label = ft.Text("Intensidade da luz: --- %")
-
-        tempmax_label = ft.Text("Temperatura Mínima: --- °C")
-        tempmin_label = ft.Text("Temperatura Máxima: --- %")
+        tempmax_label = ft.Text("Temperatura Máxima: --- °C")
+        tempmin_label = ft.Text("Temperatura Mínima: --- °C")
+        dias_label = ft.Text("Dia: ---")
 
         input_min = ft.TextField(label="Temperatura Mínima", keyboard_type="number", width=150)
         input_max = ft.TextField(label="Temperatura Máxima", keyboard_type="number", width=150)
+
+        erro_label = ft.Text("", color=ft.Colors.RED)
 
         def atualizar_labels():
             if not campanulas:
@@ -70,6 +64,7 @@ def main(page: ft.Page):
                 brilho_label.value = ""
                 tempmax_label.value = ""
                 tempmin_label.value = ""
+                dias_label.value = ""
                 input_min.value = ""
                 input_max.value = ""
                 return
@@ -81,40 +76,51 @@ def main(page: ft.Page):
             brilho_label.value = ""
             tempmax_label.value = ""
             tempmin_label.value = ""
+            dias_label.value = ""
             input_min.value = ""
             input_max.value = ""
+            erro_label.value = ""
             page.update()
 
         def iniciar_atualizacao():
             nonlocal thread_atualizacao
             parar_atualizacao()
+
             def atualizar():
                 while not stop_atualizacao:
                     try:
                         camp = campanulas[indice_atual["valor"]]
-                        r = requests.get(BASE_URL + camp["codigo"], timeout=5)
-                        if r.status_code == 200:
-                            dados_api = r.json()[camp["codigo"]]
-                            temperatura = dados_api["temperature"]
+                        codigo = camp["codigo"]
 
+                        r = requests.get(BASE_URL + codigo, timeout=5)
+                        if r.status_code == 200:
+                            dados_api = r.json()[codigo]
+                            temperatura = dados_api["temperature"]
                             brilho = dados_api["brightness"]
                             max = dados_api["max"]
                             min = dados_api["min"]
                         else:
-                            temperatura = "---"
-                            brilho = "---"
-                            max = "---"
-                            min = "---"
+                            temperatura = brilho = max = min = "---"
+
+                        # Buscar dias
+                        try:
+                            r_config = requests.get(CONFIG_URL + codigo, timeout=5)
+                            if r_config.status_code == 200:
+                                dados_config = r_config.json()[codigo]
+                                dias = dados_config.get("dias", "---")
+                            else:
+                                dias = "---"
+                        except:
+                            dias = "---"
+
                     except:
-                        temperatura = "---"
-                        brilho = "---"
-                        max = "---"
-                        min = "---"
+                        temperatura = brilho = max = min = dias = "---"
 
                     temp_label.value = f"Temperatura: {temperatura} °C"
                     brilho_label.value = f"Intensidade da luz: {brilho} %"
-                    tempmax_label.value = f"Temperatura Mínima: {max} °C"
-                    tempmin_label.value = f"Temperatura Máxima: {min} °C"
+                    tempmax_label.value = f"Temperatura Máxima: {max} °C"
+                    tempmin_label.value = f"Temperatura Mínima: {min} °C"
+                    dias_label.value = f"Dia: {dias}"
                     page.update()
                     time.sleep(5)
 
@@ -146,28 +152,38 @@ def main(page: ft.Page):
                 return
             camp = campanulas[indice_atual["valor"]]
             codigo = camp["codigo"]
+
             try:
-                valor_min = float(input_min.value.strip())
-                valor_max = float(input_max.value.strip())
-            except:
-                print("Erro: entradas inválidas")
+                valor_min = float(input_min.value.strip().replace(',', '.'))
+                valor_max = float(input_max.value.strip().replace(',', '.'))
+
+                if valor_min > valor_max:
+                    erro_label.value = "Erro: Temperatura mínima não pode ser maior que a máxima."
+                    page.update()
+                    return
+            except ValueError:
+                erro_label.value = "Erro: entradas inválidas."
+                page.update()
                 return
 
             payload = {
                 codigo: {
                     "min": valor_min,
-                    "max": valor_max
+                    "max": valor_max,
+                    "dias": 0
                 }
             }
 
             try:
                 r = requests.post(BASE_URL + "/config/" + codigo, json=payload, timeout=5)
                 if r.status_code == 200:
-                    print("Dados enviados com sucesso")
+                    erro_label.value = "Dados enviados com sucesso! Aguarde"
                 else:
-                    print("Erro ao enviar dados:", r.status_code)
+                    erro_label.value = f"Erro ao enviar dados: {r.status_code}"
             except Exception as e:
-                print("Erro ao conectar:", e)
+                erro_label.value = f"Erro ao conectar: {e}"
+
+            page.update()
 
         atualizar_labels()
         iniciar_atualizacao()
@@ -182,14 +198,16 @@ def main(page: ft.Page):
                     temp_label,
                     brilho_label,
                     tempmax_label,
-                    tempmin_label
+                    tempmin_label,
+                    dias_label,
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=20,
                 bgcolor=ft.Colors.BLUE_50,
                 border_radius=10
             ),
 
-            # NOVO BLOCO: Inputs e botão
+            erro_label,
+
             ft.Row([
                 ft.Column([input_max, input_min]),
                 ft.ElevatedButton("Definir", on_click=definir),
@@ -202,9 +220,8 @@ def main(page: ft.Page):
 
             ft.ElevatedButton("Voltar", on_click=lambda _: encerrar_voltar())
         ],
-        expand=True,
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-
+            expand=True,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     def encerrar_voltar():
         global stop_atualizacao
@@ -213,7 +230,6 @@ def main(page: ft.Page):
         stop_atualizacao = False
         mostrar_tela(tela_inicial())
 
-    ## Tela Adicionar
     def tela_adicionar():
         nome = ft.TextField(label="Nome da Campânula")
         codigo = ft.TextField(label="Código da Campânula")
@@ -233,15 +249,13 @@ def main(page: ft.Page):
             ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-    ## Tela Remover
     def tela_remover():
         lista = ft.Column(scroll=ft.ScrollMode.ALWAYS)
         campanulas = carregar_dados()
 
         def atualizar_lista():
             campanulas.clear()
-            campanulas.extend(carregar_dados())  # Recarrega do arquivo
-
+            campanulas.extend(carregar_dados())
             lista.controls.clear()
             if campanulas:
                 for camp in campanulas:
@@ -258,7 +272,7 @@ def main(page: ft.Page):
             dados = carregar_dados()
             dados = [c for c in dados if c != campanula]
             salvar_dados(dados)
-            atualizar_lista()  # Atualiza a lista na tela
+            atualizar_lista()
 
         atualizar_lista()
 
@@ -268,16 +282,11 @@ def main(page: ft.Page):
             ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
-    ## --------------------------
-    ## Função de troca de tela
-    ## --------------------------
     def mostrar_tela(tela):
         conteudo.content = tela
         page.update()
 
-    ## Inicializa na tela inicial
     mostrar_tela(tela_inicial())
-
     page.add(conteudo)
 
 ft.app(target=main)

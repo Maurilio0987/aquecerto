@@ -98,9 +98,9 @@ def set_config(code):
     caminho = f"config_{code}.json"
 
     config = {
-        "min": float(data.get("min", 31)),
-        "max": float(data.get("max", 33)),
-        "dias": int(data.get("dias", 0))
+        "min": float(data.get("min")),
+        "max": float(data.get("max")),
+        "dias": int(data.get("dias"))
     }
 
     with open(caminho, "w") as file:

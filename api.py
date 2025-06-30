@@ -94,7 +94,7 @@ def get_config(code):
 # ================================
 @app.route("/app/config/<code>", methods=["POST"])
 def set_config(code):
-    data = request.json.get("codigo")
+    data = request.json.get(code)
     caminho = f"config_{code}.json"
 
     config = {

@@ -16,9 +16,6 @@ def home():
     })
 
 
-# ================================
-# 📲 Rota para o app obter dados de temperatura e brilho
-# ================================
 @app.route("/app/<code>")
 def app_get_data(code):
     caminho = f"{code}.json"
@@ -44,9 +41,6 @@ def app_get_data(code):
         })
 
 
-# ================================
-# 📤 Rota para o ESP32 enviar dados de temperatura e brilho
-# ================================
 @app.route("/esp32", methods=["POST"])
 def esp32_post_data():
     dados = request.json
@@ -56,7 +50,7 @@ def esp32_post_data():
     brightness = str(dados.get("brightness"))
     min = str(dados.get("min"))
     max = str(dados.get("max"))
-    dias = str(dados.get("dias"))  # <-- ADICIONADO
+    dias = str(dados.get("dias"))
 
     with open(f"{code}.json", "w") as file:
         json.dump({
@@ -65,22 +59,17 @@ def esp32_post_data():
             "brightness": brightness,
             "min": min,
             "max": max,
-            "dias": dias  # <-- ADICIONADO
+            "dias": dias
         }, file)
 
     return jsonify({"status": "saved", "code": code})
 
 
-
-# ================================
-# 📥 Rota para obter configuração min/max/dias
-# ================================
 @app.route("/esp32/config/<code>")
 def get_config(code):
     caminho = f"config_{code}.json"
 
     if not os.path.exists(caminho):
-        # Valores padrão
         config = {
             "min": 31,
             "max": 33,
@@ -93,9 +82,6 @@ def get_config(code):
         return jsonify({"status": "ok", code: data})
 
 
-# ================================
-# 📝 Rota para salvar nova configuração min/max/dias
-# ================================
 @app.route("/app/config/<code>", methods=["POST"])
 def set_config(code):
     data = request.json.get(code)
@@ -113,9 +99,4 @@ def set_config(code):
     return jsonify({"status": "saved", code: config})
 
 
-# ================================
-# 🚀 Inicialização
-# ================================
-#if __name__ == "__main__":
-#    app.run(debug=True, port=5000)
 

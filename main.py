@@ -6,12 +6,20 @@ import threading
 import time
 
 CAMINHO_ARQUIVO = "campanulas.json"
-BASE_URL = "https://aquecerto.onrender.com/app/"
-CONFIG_URL = "https://aquecerto.onrender.com/esp32/config/"
+
+SUPABASE_URL = "https://rktybanymktqkjyopcrd.supabase.co/rest/v1/campanulas"
+SUPABASE_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrdHliYW55bWt0cWtqeW9wY3JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEzNzIxMjcsImV4cCI6MjA2Njk0ODEyN30.8bUcaM1MdjcuWoMsbqaDFoBM4YDY8p5nXfkMRNgjEz0"
+
+SUPABASE_HEADERS = {
+    "apikey": SUPABASE_API_KEY,
+    "Authorization": f"Bearer {SUPABASE_API_KEY}",
+    "Content-Type": "application/json"
+}
 
 def main(page: ft.Page):
-    page.title = "Aquecerto"
+    page.title = "Campânulas"
     page.theme_mode = ft.ThemeMode.LIGHT
+    conteudo = ft.Container(alignment=ft.alignment.center, expand=True)
 
     def carregar_dados():
         if os.path.exists(CAMINHO_ARQUIVO):
@@ -26,7 +34,9 @@ def main(page: ft.Page):
         with open(CAMINHO_ARQUIVO, "w") as arq:
             json.dump(dados, arq, indent=4)
 
-    conteudo = ft.Container(alignment=ft.alignment.center, expand=True)
+    def mostrar_tela(tela):
+        conteudo.content = tela
+        page.update()
 
     def tela_inicial():
         return ft.Column([
@@ -34,7 +44,7 @@ def main(page: ft.Page):
             ft.ElevatedButton("Suas Campânulas", on_click=lambda _: mostrar_tela(tela_campanulas())),
             ft.ElevatedButton("Adicionar Campânula", on_click=lambda _: mostrar_tela(tela_adicionar())),
             ft.ElevatedButton("Remover Campânula", on_click=lambda _: mostrar_tela(tela_remover())),
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     stop_atualizacao = False
     thread_atualizacao = None
@@ -44,42 +54,26 @@ def main(page: ft.Page):
         indice_atual = {"valor": 0}
 
         nome_label = ft.Text("", size=20, weight=ft.FontWeight.BOLD)
-        codigo_label = ft.Text("")
+        codigo_label = ft.Text("Código: ---")
         temp_label = ft.Text("Temperatura Atual: --- °C")
         brilho_label = ft.Text("Intensidade da luz: --- %")
         tempmax_label = ft.Text("Temperatura Máxima: --- °C")
         tempmin_label = ft.Text("Temperatura Mínima: --- °C")
         dias_label = ft.Text("Dia: ---")
 
-        input_min = ft.TextField(label="Temperatura Mínima", keyboard_type="number", width=150)
-        input_max = ft.TextField(label="Temperatura Máxima", keyboard_type="number", width=150)
+        input_min = ft.TextField(label="Definir Temperatura Mínima", keyboard_type="number", width=150)
+        input_max = ft.TextField(label="Definir Temperatura Máxima", keyboard_type="number", width=150)
+        input_dia = ft.TextField(label="Definir Dia", keyboard_type="number", width=150)
 
         erro_label = ft.Text("", color=ft.Colors.RED)
 
         def atualizar_labels():
             if not campanulas:
                 nome_label.value = "Nenhuma campânula"
-                codigo_label.value = ""
-                temp_label.value = ""
-                brilho_label.value = ""
-                tempmax_label.value = ""
-                tempmin_label.value = ""
-                dias_label.value = ""
-                input_min.value = ""
-                input_max.value = ""
                 return
-
             camp = campanulas[indice_atual["valor"]]
             nome_label.value = camp['nome']
             codigo_label.value = f"Código: {camp['codigo']}"
-            temp_label.value = ""
-            brilho_label.value = ""
-            tempmax_label.value = ""
-            tempmin_label.value = ""
-            dias_label.value = ""
-            input_min.value = ""
-            input_max.value = ""
-            erro_label.value = ""
             page.update()
 
         def iniciar_atualizacao():
@@ -91,36 +85,22 @@ def main(page: ft.Page):
                     try:
                         camp = campanulas[indice_atual["valor"]]
                         codigo = camp["codigo"]
-
-                        r = requests.get(BASE_URL + codigo, timeout=5)
-                        if r.status_code == 200:
-                            dados_api = r.json()[codigo]
-                            temperatura = dados_api["temperature"]
-                            brilho = dados_api["brightness"]
-                            max = dados_api["max"]
-                            min = dados_api["min"]
+                        r = requests.get(
+                            f"{SUPABASE_URL}?id=eq.{codigo}",
+                            headers=SUPABASE_HEADERS,
+                            timeout=5
+                        )
+                        if r.status_code == 200 and r.json():
+                            dados = r.json()[0]
+                            temp_label.value = f"Temperatura: {dados.get('temp_atual', '---')} °C"
+                            brilho_label.value = f"Intensidade da luz: {dados.get('intensidade', '---')} %"
+                            tempmax_label.value = f"Temperatura Máxima: {dados.get('temp_max', '---')} °C"
+                            tempmin_label.value = f"Temperatura Mínima: {dados.get('temp_min', '---')} °C"
+                            dias_label.value = f"Dia: {dados.get('dia', '---')}"
                         else:
-                            temperatura = brilho = max = min = "---"
-
-                        # Buscar dias
-                        try:
-                            r_config = requests.get(CONFIG_URL + codigo, timeout=5)
-                            if r_config.status_code == 200:
-                                dados_config = r_config.json()[codigo]
-                                dias = dados_config.get("dias", "---")
-                            else:
-                                dias = "---"
-                        except:
-                            dias = "---"
-
+                            temp_label.value = brilho_label.value = tempmax_label.value = tempmin_label.value = dias_label.value = "---"
                     except:
-                        temperatura = brilho = max = min = dias = "---"
-
-                    temp_label.value = f"Temperatura: {temperatura} °C"
-                    brilho_label.value = f"Intensidade da luz: {brilho} %"
-                    tempmax_label.value = f"Temperatura Máxima: {max} °C"
-                    tempmin_label.value = f"Temperatura Mínima: {min} °C"
-                    dias_label.value = f"Dia: {dias}"
+                        temp_label.value = brilho_label.value = tempmax_label.value = tempmin_label.value = dias_label.value = "---"
                     page.update()
                     time.sleep(5)
 
@@ -134,55 +114,87 @@ def main(page: ft.Page):
             stop_atualizacao = False
 
         def proximo(_):
-            if not campanulas:
-                return
+            if not campanulas: return
             indice_atual["valor"] = (indice_atual["valor"] + 1) % len(campanulas)
             atualizar_labels()
             iniciar_atualizacao()
 
         def anterior(_):
-            if not campanulas:
-                return
+            if not campanulas: return
             indice_atual["valor"] = (indice_atual["valor"] - 1) % len(campanulas)
             atualizar_labels()
             iniciar_atualizacao()
 
-        def definir(_):
-            if not campanulas:
-                return
-            camp = campanulas[indice_atual["valor"]]
-            codigo = camp["codigo"]
-
+        def definir_temp_min(_):
             try:
-                valor_min = float(input_min.value.strip().replace(',', '.'))
-                valor_max = float(input_max.value.strip().replace(',', '.'))
-
-                if valor_min > valor_max:
-                    erro_label.value = "Erro: Temperatura mínima não pode ser maior que a máxima."
-                    page.update()
-                    return
+                valor = float(input_min.value.strip().replace(',', '.'))
             except ValueError:
-                erro_label.value = "Erro: entradas inválidas."
+                erro_label.value = "Valor mínimo inválido"
                 page.update()
                 return
 
-            payload = {
-                codigo: {
-                    "min": valor_min,
-                    "max": valor_max,
-                    "dias": 0
-                }
-            }
+            camp = campanulas[indice_atual["valor"]]
+            codigo = camp["codigo"]
 
+            payload = {"temp_min": valor}
             try:
-                r = requests.post(BASE_URL + "/config/" + codigo, json=payload, timeout=5)
-                if r.status_code == 200:
-                    erro_label.value = "Dados enviados com sucesso! Aguarde"
-                else:
-                    erro_label.value = f"Erro ao enviar dados: {r.status_code}"
+                r = requests.patch(
+                    f"{SUPABASE_URL}?id=eq.{codigo}",
+                    headers=SUPABASE_HEADERS,
+                    json=payload,
+                    timeout=5
+                )
+                erro_label.value = "Temp. mín. atualizada!" if r.status_code in (200, 204) else f"Erro: {r.status_code}"
             except Exception as e:
-                erro_label.value = f"Erro ao conectar: {e}"
+                erro_label.value = f"Erro: {e}"
+            page.update()
 
+        def definir_temp_max(_):
+            try:
+                valor = float(input_max.value.strip().replace(',', '.'))
+            except ValueError:
+                erro_label.value = "Valor máximo inválido"
+                page.update()
+                return
+
+            camp = campanulas[indice_atual["valor"]]
+            codigo = camp["codigo"]
+
+            payload = {"temp_max": valor}
+            try:
+                r = requests.patch(
+                    f"{SUPABASE_URL}?id=eq.{codigo}",
+                    headers=SUPABASE_HEADERS,
+                    json=payload,
+                    timeout=5
+                )
+                erro_label.value = "Temp. máx. atualizada!" if r.status_code in (200, 204) else f"Erro: {r.status_code}"
+            except Exception as e:
+                erro_label.value = f"Erro: {e}"
+            page.update()
+
+        def definir_dia(_):
+            try:
+                valor = int(input_dia.value.strip())
+            except ValueError:
+                erro_label.value = "Dia inválido"
+                page.update()
+                return
+
+            camp = campanulas[indice_atual["valor"]]
+            codigo = camp["codigo"]
+
+            payload = {"dia": valor}
+            try:
+                r = requests.patch(
+                    f"{SUPABASE_URL}?id=eq.{codigo}",
+                    headers=SUPABASE_HEADERS,
+                    json=payload,
+                    timeout=5
+                )
+                erro_label.value = "Dia atualizado!" if r.status_code in (200, 204) else f"Erro: {r.status_code}"
+            except Exception as e:
+                erro_label.value = f"Erro: {e}"
             page.update()
 
         atualizar_labels()
@@ -190,41 +202,47 @@ def main(page: ft.Page):
 
         return ft.Column([
             ft.Text("Suas Campânulas", size=25, weight=ft.FontWeight.BOLD),
-
             ft.Container(
                 content=ft.Column([
-                    nome_label,
-                    codigo_label,
-                    temp_label,
-                    brilho_label,
-                    tempmax_label,
-                    tempmin_label,
-                    dias_label,
+                    nome_label, codigo_label, temp_label,
+                    brilho_label, tempmax_label, tempmin_label, dias_label
                 ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 padding=20,
                 bgcolor=ft.Colors.BLUE_50,
                 border_radius=10
             ),
-
             erro_label,
+            ft.Row(
+                [
+                    ft.Column(  # Coluna dos inputs
+                        [input_min, input_max, input_dia],
+                        spacing=10,
+                        alignment=ft.MainAxisAlignment.CENTER
+                    ),
+                    ft.Column(  # Coluna dos botões
+                        [
+                            ft.ElevatedButton("Definir Mín.", on_click=definir_temp_min),
+                            ft.ElevatedButton("Definir Máx.", on_click=definir_temp_max),
+                            ft.ElevatedButton("Definir Dia", on_click=definir_dia)
+                        ],
+                        spacing=10,
+                        alignment=ft.MainAxisAlignment.CENTER
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=30  # Espaço entre as colunas
+            ),
 
-            ft.Row([
-                ft.Column([input_max, input_min]),
-                ft.ElevatedButton("Definir", on_click=definir),
-            ], alignment=ft.MainAxisAlignment.CENTER),
 
             ft.Row([
                 ft.ElevatedButton("◀️", on_click=anterior),
                 ft.ElevatedButton("▶️", on_click=proximo)
             ], alignment=ft.MainAxisAlignment.CENTER),
-
             ft.ElevatedButton("Voltar", on_click=lambda _: encerrar_voltar())
-        ],
-            expand=True,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        ], expand=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     def encerrar_voltar():
-        global stop_atualizacao
+        nonlocal stop_atualizacao
         stop_atualizacao = True
         time.sleep(0.1)
         stop_atualizacao = False
@@ -243,8 +261,7 @@ def main(page: ft.Page):
 
         return ft.Column([
             ft.Text("Adicionar Nova Campânula", size=25, weight=ft.FontWeight.BOLD),
-            nome,
-            codigo,
+            nome, codigo,
             ft.ElevatedButton("Adicionar", on_click=adicionar),
             ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
@@ -281,10 +298,6 @@ def main(page: ft.Page):
             lista,
             ft.ElevatedButton("Voltar", on_click=lambda _: mostrar_tela(tela_inicial()))
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-
-    def mostrar_tela(tela):
-        conteudo.content = tela
-        page.update()
 
     mostrar_tela(tela_inicial())
     page.add(conteudo)

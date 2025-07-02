@@ -1,0 +1,386 @@
+#include <DHT.h>
+#include <dimmable_light.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Arduino.h>
+#include <WiFi.h>
+#include <time.h>
+#include <SPIFFS.h>
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+#define LIGHT_PIN 12
+#define Z_C_PIN 5
+#define RELE_PIN 14
+
+DHT dht(DHTPIN, DHTTYPE);
+DimmableLight light(LIGHT_PIN);
+LiquidCrystal_I2C lcd(0x27, 20, 4);
+
+const char* ssid = "PROJETO";
+const char* password = "projeto123";
+
+float semana1_tempMax = 35.0;
+float semana1_tempMin = 33.0;
+float semana2_tempMax = 34.0;
+float semana2_tempMin = 32.0;
+
+unsigned long intervaloVerificacao = 60000 * 0.5;
+unsigned long ultimoTempoVerificacao = 0;
+
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = -3 * 3600;
+const int daylightOffset_sec = 0;
+
+const char* supabaseUrl = "https://rktybanymktqkjyopcrd.supabase.co/rest/v1/campanulas";
+const char* supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJrdHliYW55bWt0cWtqeW9wY3JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEzNzIxMjcsImV4cCI6MjA2Njk0ODEyN30.8bUcaM1MdjcuWoMsbqaDFoBM4YDY8p5nXfkMRNgjEz0";
+
+const char *code = "/codigo.txt";
+const char *config = "/config.txt";
+
+unsigned long tempoUltimaTela = 0;
+const unsigned long intervaloTela = 5000;
+int estadoDisplay = 0;
+
+String ultimaData = "";
+String codigo;
+float tempMax;
+float tempMin;
+int dia;
+int estadoRele = 0;
+
+bool wifiConectado = false;
+unsigned long ultimoTempoWiFi = 0;
+const unsigned long intervaloWiFi = 10000;
+
+String gerarCodigo() {
+  const char caracteres[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  String codigo = "";
+  for (int i = 0; i < 6; i++) {
+    int index = random(0, strlen(caracteres));
+    codigo += caracteres[index];
+  }
+  return codigo;
+}
+
+int calcularBrilho(float tempMin, float tempMax, float temperaturaAtual) {
+  float tempMeio = (tempMin + tempMax) / 2.0;
+  int brilho = 0;
+
+  if (temperaturaAtual <= tempMin) {
+    brilho = 255;
+  } else if (temperaturaAtual > tempMin && temperaturaAtual <= tempMeio) {
+    brilho = map(temperaturaAtual * 100, tempMin * 100, tempMeio * 100, 255, 0);
+    brilho = constrain(brilho, 0, 255);
+  } else {
+    brilho = 0;
+  }
+
+  return brilho;
+}
+
+void atualizarLCD(float temperatura, int brilho) {
+  int percent = map(brilho, 0, 255, 0, 100);
+  lcd.clear();
+
+  if (estadoDisplay == 0) {
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(temperatura, 1);
+    lcd.print(" C");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Luz: ");
+    lcd.print(percent);
+    lcd.print(" %");
+  } else if (estadoDisplay == 1) {
+    lcd.setCursor(0, 0);
+    lcd.print("Min: ");
+    lcd.print(tempMin, 1);
+    lcd.print(" C");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Max: ");
+    lcd.print(tempMax, 1);
+    lcd.print(" C");
+  } else if (estadoDisplay == 2) {
+    lcd.setCursor(0, 0);
+    lcd.print("Codigo: ");
+    lcd.print(codigo);
+
+    lcd.setCursor(0, 1);
+    lcd.print("Dia: ");
+    lcd.print(dia);
+  }
+  estadoDisplay = (estadoDisplay + 1) % 3;
+}
+
+String carregarCodigo(const char *arquivo) {
+  if (SPIFFS.exists(arquivo)) {
+    File file = SPIFFS.open(arquivo, "r");
+    if (file) {
+      String codigo = file.readString();
+      codigo.trim();
+      file.close();
+      return codigo;
+    }
+  }
+  String codigo = gerarCodigo();
+  File file = SPIFFS.open(arquivo, "w");
+  if (file) {
+    file.print(codigo);
+    file.close();
+  }
+  return codigo;
+}
+
+String obterDataAtual() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) return "";
+  char data[11];
+  strftime(data, sizeof(data), "%Y-%m-%d", &timeinfo);
+  return String(data);
+}
+
+void carregarConfig(const char* arquivo) {
+  if (!SPIFFS.exists(arquivo)) {
+    Serial.println("Arquivo de configuração não encontrado. Usando valores padrão.");
+    dia = 0;
+    ultimaData = obterDataAtual();
+    salvarConfig(arquivo);
+    return;
+  }
+
+  File file = SPIFFS.open(arquivo, "r");
+  if (!file) {
+    Serial.println("Erro ao abrir o arquivo de configuração. Usando valores padrão.");
+    dia = 0;
+    ultimaData = obterDataAtual();
+    return;
+  }
+
+  StaticJsonDocument<256> doc;
+  DeserializationError erro = deserializeJson(doc, file);
+  file.close();
+
+  if (erro) {
+    Serial.println("Erro ao carregar JSON. Usando valores padrão.");
+    dia = 0;
+    ultimaData = obterDataAtual();
+    return;
+  }
+
+  dia = doc["dia"] | 0;
+  ultimaData = doc["ultimaData"] | obterDataAtual();
+}
+
+
+void salvarConfig(const char* arquivo) {
+  StaticJsonDocument<512> doc;
+  doc["dia"] = dia;
+  doc["ultimaData"] = ultimaData;
+  File file = SPIFFS.open(arquivo, "w");
+  if (file) {
+    serializeJson(doc, file);
+    file.close();
+  }
+}
+
+float definirTempMaxima(int dia) {
+  return (dia < 7) ? semana1_tempMax : semana2_tempMax;
+}
+
+float definirTempMinima(int dia) {
+  return (dia < 7) ? semana1_tempMin : semana2_tempMin;
+}
+
+void atualizarConfigComBaseNoDia() {
+  tempMax = definirTempMaxima(dia);
+  tempMin = definirTempMinima(dia);
+  salvarConfig(config);
+}
+
+void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estadoRele) {
+  if (!wifiConectado) return;
+
+  HTTPClient http;
+  http.begin(supabaseUrl);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", supabaseKey);
+  http.addHeader("Authorization", "Bearer " + String(supabaseKey));
+  http.addHeader("Prefer", "resolution=merge-duplicates");
+
+  StaticJsonDocument<256> doc;
+  JsonArray data = doc.to<JsonArray>();
+  JsonObject item = data.createNestedObject();
+  item["id"] = codigo;
+  item["temp_atual"] = temperatura;
+  item["intensidade"] = map(brilho, 0, 255, 0, 100);
+  item["umidade"] = umidade;
+  item["dia"] = dia;
+  item["temp_max"] = tempMax;
+  item["temp_min"] = tempMin;
+  item["refrigeracao"] = estadoRele;
+
+  String jsonPayload;
+  serializeJson(doc, jsonPayload);
+  Serial.println("Enviando para o Supabase: " + jsonPayload);
+
+  int httpCode = http.POST(jsonPayload);
+  if (httpCode > 0) {
+    Serial.printf("[Supabase] Código de resposta: %d\n", httpCode);
+  } else {
+    Serial.printf("[Supabase] Erro: %s\n", http.errorToString(httpCode).c_str());
+  }
+  http.end();
+}
+
+int calcularDiferencaDias(String dataInicial, String dataFinal) {
+  int anoI, mesI, diaI;
+  int anoF, mesF, diaF;
+
+  if (sscanf(dataInicial.c_str(), "%d-%d-%d", &anoI, &mesI, &diaI) != 3 ||
+      sscanf(dataFinal.c_str(), "%d-%d-%d", &anoF, &mesF, &diaF) != 3) {
+    return 0;  // erro ao converter
+  }
+
+  struct tm tmInicial = {0};
+  struct tm tmFinal = {0};
+
+  tmInicial.tm_year = anoI - 1900;
+  tmInicial.tm_mon = mesI - 1;
+  tmInicial.tm_mday = diaI;
+
+  tmFinal.tm_year = anoF - 1900;
+  tmFinal.tm_mon = mesF - 1;
+  tmFinal.tm_mday = diaF;
+
+  time_t tInicial = mktime(&tmInicial);
+  time_t tFinal = mktime(&tmFinal);
+
+  if (tInicial == -1 || tFinal == -1) return 0;
+
+  double segundos = difftime(tFinal, tInicial);
+  int dias = round(segundos / 86400.0);
+  return max(dias, 0);
+}
+
+
+void verificarMudancaDeDia() {
+  String dataAtual = obterDataAtual();
+  Serial.println(dataAtual);
+  Serial.println(ultimaData);
+  if (dataAtual != "" && dataAtual != ultimaData) {
+    int diferenca = calcularDiferencaDias(ultimaData, dataAtual);
+    Serial.println(diferenca);
+    dia += diferenca;
+    ultimaData = dataAtual;
+    atualizarConfigComBaseNoDia();
+    salvarConfig(config);
+  }
+}
+
+void tentarReconectarWiFi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiConectado) {
+      wifiConectado = true;
+      Serial.println("[WiFi] Conectado.");
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    }
+    return;
+  }
+
+  if (millis() - ultimoTempoWiFi >= intervaloWiFi) {
+    ultimoTempoWiFi = millis();
+    Serial.println("[WiFi] Tentando conectar...");
+    WiFi.begin(ssid, password);
+  }
+
+  wifiConectado = false;
+}
+
+void exibirConteudoArquivo(const char* caminho) {
+  if (!SPIFFS.exists(caminho)) {
+    Serial.printf("Arquivo %s não encontrado!\n", caminho);
+    return;
+  }
+
+  File file = SPIFFS.open(caminho, "r");
+  if (!file) {
+    Serial.printf("Erro ao abrir o arquivo %s\n", caminho);
+    return;
+  }
+
+  Serial.printf("Conteúdo de %s:\n", caminho);
+  while (file.available()) {
+    Serial.write(file.read());
+  }
+  file.close();
+  Serial.println();
+}
+
+void setup() {
+  Serial.begin(115200);
+  lcd.init();
+  lcd.backlight();
+  dht.begin();
+  pinMode(RELE_PIN, OUTPUT);
+  DimmableLight::setSyncPin(Z_C_PIN);
+  DimmableLight::begin();
+  if (!SPIFFS.begin(true)) {
+    Serial.println("Erro ao montar SPIFFS");
+    return;
+  }
+  WiFi.begin(ssid, password); // Inicializa WiFi
+  ultimoTempoWiFi = millis() - intervaloWiFi;
+  codigo = carregarCodigo(code);
+  carregarConfig(config);
+  exibirConteudoArquivo(config);
+  atualizarConfigComBaseNoDia();
+}
+
+void loop() {
+  tentarReconectarWiFi();
+
+
+  float temperatura = dht.readTemperature();
+  float umidade = dht.readHumidity();
+  int brilho = 0;
+
+  if (!isnan(temperatura) && !isnan(umidade)) {
+    brilho = calcularBrilho(tempMin, tempMax, temperatura);
+    light.setBrightness(brilho);
+
+    if (temperatura >= tempMax) {
+      digitalWrite(RELE_PIN, HIGH);
+      estadoRele = 1;
+    } else {
+      digitalWrite(RELE_PIN, LOW);
+      estadoRele = 0;
+    }
+
+    enviarDadosSupabase(temperatura, brilho, umidade, estadoRele);
+
+    if (millis() - tempoUltimaTela >= intervaloTela) {
+      tempoUltimaTela = millis();
+      atualizarLCD(temperatura, brilho);
+    }
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Sensor erro!");
+    Serial.println("Erro na leitura do DHT");
+  }
+
+  unsigned long tempoAtual = millis();
+  if (WiFi.status() == WL_CONNECTED && tempoAtual - ultimoTempoVerificacao >= intervaloVerificacao) {
+    ultimoTempoVerificacao = tempoAtual;
+    verificarMudancaDeDia();
+    enviarDadosSupabase(temperatura, brilho, umidade, estadoRele);
+    Serial.println("verificado");
+  }
+
+  delay(2000);
+}

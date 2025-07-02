@@ -203,7 +203,7 @@ void enviarDadosSupabase(float temperatura, int brilho) {
     item["id"] = codigo;
     item["temp_atual"] = temperatura;
     item["intensidade"] = map(brilho, 0, 255, 0, 100);
-    item["dia"] = dia;
+    
 
     String jsonPayload;
     serializeJson(doc, jsonPayload);
@@ -230,6 +230,46 @@ void enviarDadosSupabase(float temperatura, int brilho) {
   }
 }
 
+void enviarDiaParaSupabase() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    // Monta a URL com o ID do registro a ser atualizado
+    String url = String(supabaseUrl) + "?id=eq." + codigo;
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("apikey", supabaseKey);
+    http.addHeader("Authorization", "Bearer " + String(supabaseKey));
+    http.addHeader("Prefer", "return=minimal");
+
+    // Monta o JSON apenas com o campo "dia"
+    StaticJsonDocument<128> doc;
+    doc["dia"] = dia;
+
+    String jsonPayload;
+    serializeJson(doc, jsonPayload);
+
+    Serial.println("Enviando apenas dia para o Supabase: " + jsonPayload);
+
+    int httpCode = http.PATCH(jsonPayload);
+
+    if (httpCode > 0) {
+      Serial.printf("[Supabase - Dia] Código de resposta: %d\n", httpCode);
+      if (httpCode != 204) { // 204 significa "No Content", o que é esperado
+        String response = http.getString();
+        Serial.println("[Supabase - Dia] Resposta: " + response);
+      }
+    } else {
+      Serial.printf("[Supabase - Dia] Falha na requisição: %s\n", http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi não conectado. Não foi possível enviar o dia para o Supabase.");
+  }
+}
+
 // ========================================================================================================
 
 void iniciarWiFi() {
@@ -245,14 +285,11 @@ void iniciarWiFi() {
 
 void verificarMudancaDeDia() {
   String dataAtual = obterDataAtual();
-  Serial.print("verificando");
-  Serial.print(dataAtual);
-  Serial.print(ultimaData);
   if (dataAtual != "" && dataAtual != ultimaData) {
     dia += 1;
     ultimaData = dataAtual;
     salvarConfig(config);
-    Serial.print("atualizado");
+    enviarDiaParaSupabase();
   }
 }
 
@@ -322,8 +359,6 @@ void loop() {
     verificarMudancaDeDia();
   }
   
-  ultimaData = "2025-01-01"; // Forçar diferença para simular
-  verificarMudancaDeDia();
   obterConfigDoSupabase();
 
   float temperature = dht.readTemperature();

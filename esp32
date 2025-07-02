@@ -87,34 +87,52 @@ void atualizarLCD(float temperatura, int brilho) {
 
   if (estadoDisplay == 0) {
     lcd.setCursor(0, 0);
-    lcd.print("Temp: ");
-    lcd.print(temperatura, 1);
-    lcd.print(" C");
+    lcd.print("Codigo:");
+    lcd.print(codigo);
+
+    lcd.print(" Dia:");
+    lcd.print(dia);
 
     lcd.setCursor(0, 1);
-    lcd.print("Luz: ");
+    lcd.print("S1: ");
+    lcd.print(temperatura, 1);
+    lcd.print(" S2: ");
+    lcd.print(" --.-");
+
+    lcd.setCursor(0, 2);
+    lcd.print("Temp media: ");
+    lcd.print(temperatura, 1);
+    
+
+    lcd.setCursor(0, 3);
+    lcd.print("Aquecimento: ");
     lcd.print(percent);
     lcd.print(" %");
   } else if (estadoDisplay == 1) {
     lcd.setCursor(0, 0);
-    lcd.print("Min: ");
-    lcd.print(tempMin, 1);
-    lcd.print(" C");
-
-    lcd.setCursor(0, 1);
-    lcd.print("Max: ");
-    lcd.print(tempMax, 1);
-    lcd.print(" C");
-  } else if (estadoDisplay == 2) {
-    lcd.setCursor(0, 0);
-    lcd.print("Codigo: ");
+    lcd.print("Codigo:");
     lcd.print(codigo);
 
-    lcd.setCursor(0, 1);
-    lcd.print("Dia: ");
+    lcd.print(" Dia:");
     lcd.print(dia);
+
+    lcd.setCursor(0, 1);
+    lcd.print("S3: ");
+    lcd.print("--.-");
+    lcd.print(" S4: ");
+    lcd.print("--.-");
+
+    lcd.setCursor(0, 2);
+    lcd.print("Temp media: ");
+    lcd.print(temperatura, 1);
+    
+
+    lcd.setCursor(0, 3);
+    lcd.print("Aquecimento: ");
+    lcd.print(percent);
+    lcd.print(" %");
   }
-  estadoDisplay = (estadoDisplay + 1) % 3;
+  estadoDisplay = (estadoDisplay + 1) % 2;
 }
 
 String carregarCodigo(const char *arquivo) {

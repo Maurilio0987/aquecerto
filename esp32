@@ -51,6 +51,8 @@ float tempMin;
 int dia;
 int estadoRele = 0;
 
+int ultimoMinutoGrafico = -1;
+
 bool wifiConectado = false;
 unsigned long ultimoTempoWiFi = 0;
 const unsigned long intervaloWiFi = 10000;
@@ -220,15 +222,9 @@ void atualizarConfigComBaseNoDia() {
   salvarConfig(config);
 }
 
+
 void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estadoRele) {
   if (!wifiConectado) return;
-
-  HTTPClient http;
-  http.begin(supabaseUrl);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("apikey", supabaseKey);
-  http.addHeader("Authorization", "Bearer " + String(supabaseKey));
-  http.addHeader("Prefer", "resolution=merge-duplicates");
 
   StaticJsonDocument<256> doc;
   JsonArray data = doc.to<JsonArray>();
@@ -241,6 +237,55 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
   item["temp_max"] = tempMax;
   item["temp_min"] = tempMin;
   item["refrigeracao"] = estadoRele;
+
+  time_t now;
+  struct tm timeinfo;
+  time(&now);
+  localtime_r(&now, &timeinfo);
+
+  if (timeinfo.tm_min == 0 || timeinfo.tm_min == 30) {
+    HTTPClient getHttp;
+    getHttp.begin(String(supabaseUrl) + "?id=eq." + codigo);
+    getHttp.addHeader("apikey", supabaseKey);
+    getHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
+
+    int httpCode = getHttp.GET();
+    if (httpCode == 200) {
+      String response = getHttp.getString();
+      DynamicJsonDocument getDoc(2048);
+      deserializeJson(getDoc, response);
+      JsonArray arr = getDoc.as<JsonArray>();
+      if (arr.size() > 0) {
+        JsonObject obj = arr[0];
+        JsonArray temps = obj["temperaturas"].as<JsonArray>();
+        if (temps.size() >= 48) temps.remove(0);
+        temps.add(temperatura);
+
+        StaticJsonDocument<512> patchDoc;
+        patchDoc["temperaturas"] = temps;
+
+        String patchBody;
+        serializeJson(patchDoc, patchBody);
+
+        HTTPClient patchHttp;
+        patchHttp.begin(String(supabaseUrl) + "?id=eq." + codigo);
+        patchHttp.addHeader("Content-Type", "application/json");
+        patchHttp.addHeader("apikey", supabaseKey);
+        patchHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
+        patchHttp.addHeader("Prefer", "resolution=merge-duplicates");
+        patchHttp.sendRequest("PATCH", patchBody);
+        patchHttp.end();
+      }
+    }
+    getHttp.end();
+  }
+
+  HTTPClient http;
+  http.begin(supabaseUrl);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("apikey", supabaseKey);
+  http.addHeader("Authorization", "Bearer " + String(supabaseKey));
+  http.addHeader("Prefer", "resolution=merge-duplicates");
 
   String jsonPayload;
   serializeJson(doc, jsonPayload);
@@ -380,7 +425,6 @@ void loop() {
     }
 
     enviarDadosSupabase(temperatura, brilho, umidade, estadoRele);
-
     if (millis() - tempoUltimaTela >= intervaloTela) {
       tempoUltimaTela = millis();
       atualizarLCD(temperatura, brilho);

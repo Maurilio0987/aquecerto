@@ -10,9 +10,9 @@
 #include <HTTPClient.h>
 
 #define Sensor1 4
-#define Sensor2 6
-#define Sensor3 7
-#define Sensor4 8
+#define Sensor2 15
+#define Sensor3 34
+#define Sensor4 35
 
 #define DHTTYPE DHT11
 #define LIGHT_PIN 12
@@ -59,7 +59,7 @@ float tempMin;
 int dia;
 int estadoRele = 0;
 
-int ultimoMinutoGrafico = -1;
+int ultimoMinutoEnvio = -1;
 
 bool wifiConectado = false;
 unsigned long ultimoTempoWiFi = 0;
@@ -91,8 +91,9 @@ int calcularBrilho(float tempMin, float tempMax, float temperaturaAtual) {
   return brilho;
 }
 
-void atualizarLCD(temperatura, s1, s2, s3, s4, brilho) {
+void atualizarLCD(float temperatura, float s1, float s2, float s3, float s4, int brilho) {
   int percent = map(brilho, 0, 255, 0, 100);
+  
   lcd.clear();
 
   if (estadoDisplay == 0) {
@@ -105,9 +106,17 @@ void atualizarLCD(temperatura, s1, s2, s3, s4, brilho) {
 
     lcd.setCursor(0, 1);
     lcd.print("S1: ");
-    lcd.print(s1);
+    if (isnan(s1)) {
+      lcd.print("Erro");
+    } else {
+      lcd.print(s1, 1);
+    }
     lcd.print(" S2: ");
-    lcd.print(s2);
+    if (isnan(s2)) {
+      lcd.print("Erro");
+    } else {
+      lcd.print(s2, 1);
+    }
 
     lcd.setCursor(0, 2);
     lcd.print("Temp media: ");
@@ -128,9 +137,17 @@ void atualizarLCD(temperatura, s1, s2, s3, s4, brilho) {
 
     lcd.setCursor(0, 1);
     lcd.print("S3: ");
-    lcd.print(s3);
+    if (isnan(s3)) {
+      lcd.print("Erro");
+    } else {
+      lcd.print(s3, 1);
+    }
     lcd.print(" S4: ");
-    lcd.print(s4);
+    if (isnan(s4)) {
+      lcd.print("Erro");
+    } else {
+      lcd.print(s4, 1);
+    }
 
     lcd.setCursor(0, 2);
     lcd.print("Temp media: ");
@@ -251,43 +268,59 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
   time(&now);
   localtime_r(&now, &timeinfo);
 
-  if (timeinfo.tm_min == 0 || timeinfo.tm_min == 30) {
-    HTTPClient getHttp;
-    getHttp.begin(String(supabaseUrl) + "?id=eq." + codigo);
-    getHttp.addHeader("apikey", supabaseKey);
-    getHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
+  // ENVIA DADOS PARA leituras_sensores A CADA 30 MINUTOS, UMA VEZ SÓ
+  if (timeinfo.tm_min == 0 || timeinfo.tm_min == 30) && timeinfo.tm_min != ultimoMinutoEnvio) {//(true && timeinfo.tm_min != ultimoMinutoEnvio) {
+    ultimoMinutoEnvio = timeinfo.tm_min;
+    StaticJsonDocument<256> leituraDoc;
+    leituraDoc["campanula_id"] = codigo;
+    leituraDoc["temperatura"] = temperatura;
+    leituraDoc["umidade"] = umidade;
+    leituraDoc["intensidade"] = map(brilho, 0, 255, 0, 100);
 
-    int httpCode = getHttp.GET();
-    if (httpCode == 200) {
-      String response = getHttp.getString();
-      DynamicJsonDocument getDoc(2048);
-      deserializeJson(getDoc, response);
-      JsonArray arr = getDoc.as<JsonArray>();
-      if (arr.size() > 0) {
-        JsonObject obj = arr[0];
-        JsonArray temps = obj["temperaturas"].as<JsonArray>();
-        if (temps.size() >= 48) temps.remove(0);
-        temps.add(temperatura);
+    String leituraPayload;
+    serializeJson(leituraDoc, leituraPayload);
 
-        StaticJsonDocument<512> patchDoc;
-        patchDoc["temperaturas"] = temps;
+    HTTPClient leituraHttp;
+    leituraHttp.begin("https://rktybanymktqkjyopcrd.supabase.co/rest/v1/leituras_sensores");
+    leituraHttp.addHeader("Content-Type", "application/json");
+    leituraHttp.addHeader("apikey", supabaseKey);
+    leituraHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
+    leituraHttp.addHeader("Prefer", "return=representation");
 
-        String patchBody;
-        serializeJson(patchDoc, patchBody);
-
-        HTTPClient patchHttp;
-        patchHttp.begin(String(supabaseUrl) + "?id=eq." + codigo);
-        patchHttp.addHeader("Content-Type", "application/json");
-        patchHttp.addHeader("apikey", supabaseKey);
-        patchHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
-        patchHttp.addHeader("Prefer", "resolution=merge-duplicates");
-        patchHttp.sendRequest("PATCH", patchBody);
-        patchHttp.end();
-      }
+    int leituraCode = leituraHttp.POST(leituraPayload);
+    if (leituraCode > 0) {
+      Serial.printf("[Supabase - leituras_sensores] Código de resposta: %d\n", leituraCode);
+      String resposta = leituraHttp.getString();
+      Serial.println("Resposta: " + resposta);
+    } else {
+      Serial.printf("[Supabase - leituras_sensores] Erro: %s\n", leituraHttp.errorToString(leituraCode).c_str());
     }
-    getHttp.end();
+    leituraHttp.end();
+
+    // EXCLUIR REGISTROS COM MAIS DE 24 HORAS
+    time_t limite = now - 86400; // 24h atrás
+    char timestamp[30];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&limite));
+
+    String urlExclusao = "https://rktybanymktqkjyopcrd.supabase.co/rest/v1/leituras_sensores";
+    urlExclusao += "?campanula_id=eq." + codigo;
+    urlExclusao += "&created_at=lt." + String(timestamp);
+
+    HTTPClient deleteHttp;
+    deleteHttp.begin(urlExclusao);
+    deleteHttp.addHeader("apikey", supabaseKey);
+    deleteHttp.addHeader("Authorization", "Bearer " + String(supabaseKey));
+    int deleteCode = deleteHttp.sendRequest("DELETE");
+
+    if (deleteCode > 0) {
+      Serial.printf("[Supabase - deletar antigos] Código de resposta: %d\n", deleteCode);
+    } else {
+      Serial.printf("[Supabase - deletar antigos] Erro: %s\n", deleteHttp.errorToString(deleteCode).c_str());
+    }
+    deleteHttp.end();
   }
 
+  // ENVIA DADOS ATUALIZADOS PARA TABELA PRINCIPAL
   HTTPClient http;
   http.begin(supabaseUrl);
   http.addHeader("Content-Type", "application/json");
@@ -307,6 +340,7 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
   }
   http.end();
 }
+
 
 int calcularDiferencaDias(String dataInicial, String dataFinal) {
   int anoI, mesI, diaI;
@@ -341,11 +375,8 @@ int calcularDiferencaDias(String dataInicial, String dataFinal) {
 
 void verificarMudancaDeDia() {
   String dataAtual = obterDataAtual();
-  Serial.println(dataAtual);
-  Serial.println(ultimaData);
   if (dataAtual != "" && dataAtual != ultimaData) {
     int diferenca = calcularDiferencaDias(ultimaData, dataAtual);
-    Serial.println(diferenca);
     dia += diferenca;
     ultimaData = dataAtual;
     atualizarConfigComBaseNoDia();
@@ -394,9 +425,13 @@ void exibirConteudoArquivo(const char* caminho) {
 
 void setup() {
   Serial.begin(115200);
+  delay(1000);
   lcd.init();
   lcd.backlight();
-  dht.begin();
+  dht1.begin();
+  dht2.begin();
+  dht3.begin();
+  dht4.begin();
   pinMode(RELE_PIN, OUTPUT);
   DimmableLight::setSyncPin(Z_C_PIN);
   DimmableLight::begin();
@@ -415,7 +450,6 @@ void setup() {
 void loop() {
   tentarReconectarWiFi();
 
-
   float temperatura1 = dht1.readTemperature();
   float umidade1 = dht1.readHumidity();
   float temperatura2 = dht2.readTemperature();
@@ -425,71 +459,74 @@ void loop() {
   float temperatura4 = dht4.readTemperature();
   float umidade4 = dht4.readHumidity();
   int brilho = 0;
-  tsoma = 0;
-  tdivisao = 0;
+  float tsoma = 0;
+  float tdivisao = 0;
+
+  float temperatura;
+  float umidade;
   if (!isnan(temperatura1)) {
     tsoma += temperatura1;
     tdivisao += 1;
   } else {
-    temperatura1 = "Erro";
+    temperatura1 = NAN;
   }
   if (!isnan(temperatura2)) {
     tsoma += temperatura2;
     tdivisao += 1;
   } else {
-    temperatura2 = "Erro";
+    temperatura2 = NAN;
   }
   if (!isnan(temperatura3)) {
     tsoma += temperatura3;
     tdivisao += 1;
   } else {
-    temperatura3 = "Erro";
+    temperatura3 = NAN;
   }
   if (!isnan(temperatura4)) {
     tsoma += temperatura4;
     tdivisao += 1;
   } else {
-    temperatura4 = "Erro";
+    temperatura4 = NAN;
   }
   if (tdivisao >= 1) {
     temperatura = tsoma/tdivisao;  
   } else {
-    temperatura = "erro";
+    temperatura = NAN;
   }
 
-  usoma = 0;
-  udivisao = 0;
+  float usoma = 0;
+  float udivisao = 0;
   if (!isnan(umidade1)) {
     usoma += umidade1;
     udivisao += 1;
   } else {
-    umidade1 = "Erro";
+    umidade1 = NAN;
   }
   if (!isnan(umidade2)) {
     usoma += umidade2;
     udivisao += 1;
   } else {
-    umidade2 = "Erro";
+    umidade2 = NAN;
   }
   if (!isnan(umidade3)) {
     usoma += umidade3;
     udivisao += 1;
   } else {
-    umidade3 = "Erro";
+    umidade3 = NAN;
   }
   if (!isnan(umidade4)) {
     usoma += umidade4;
     udivisao += 1;
   } else {
-    umidade4 = "Erro";
+    umidade4 = NAN;
   }
   if (udivisao >= 1) {
     umidade = usoma/udivisao;  
   } else {
-    umidade = "erro";
+    umidade = NAN;
   }
   
-  if (temperatura != "erro" && umidade != "erro" {
+  if (!isnan(temperatura) && !isnan(umidade)) {
     brilho = calcularBrilho(tempMin, tempMax, temperatura);
     light.setBrightness(brilho);
 
@@ -507,7 +544,7 @@ void loop() {
       atualizarLCD(temperatura, temperatura1, temperatura2, temperatura3, temperatura4, brilho);
     }
   } else {
-    brilho = "erro";
+    brilho = 0;
     atualizarLCD(temperatura, temperatura1, temperatura2, temperatura3, temperatura4, brilho);
     Serial.println("Erro na leitura do DHT");
   }

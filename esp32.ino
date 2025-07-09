@@ -268,8 +268,7 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
   time(&now);
   localtime_r(&now, &timeinfo);
 
-  // ENVIA DADOS PARA leituras_sensores A CADA 30 MINUTOS, UMA VEZ SÓ
-  if (timeinfo.tm_min == 0 || timeinfo.tm_min == 30) && timeinfo.tm_min != ultimoMinutoEnvio) {//(true && timeinfo.tm_min != ultimoMinutoEnvio) {
+  if ((timeinfo.tm_min == 0 || timeinfo.tm_min == 30) && timeinfo.tm_min != ultimoMinutoEnvio) {
     ultimoMinutoEnvio = timeinfo.tm_min;
     StaticJsonDocument<256> leituraDoc;
     leituraDoc["campanula_id"] = codigo;
@@ -297,8 +296,7 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
     }
     leituraHttp.end();
 
-    // EXCLUIR REGISTROS COM MAIS DE 24 HORAS
-    time_t limite = now - 86400; // 24h atrás
+    time_t limite = now - 86400;
     char timestamp[30];
     strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&limite));
 
@@ -320,7 +318,6 @@ void enviarDadosSupabase(float temperatura, int brilho, float umidade, int estad
     deleteHttp.end();
   }
 
-  // ENVIA DADOS ATUALIZADOS PARA TABELA PRINCIPAL
   HTTPClient http;
   http.begin(supabaseUrl);
   http.addHeader("Content-Type", "application/json");
@@ -348,7 +345,7 @@ int calcularDiferencaDias(String dataInicial, String dataFinal) {
 
   if (sscanf(dataInicial.c_str(), "%d-%d-%d", &anoI, &mesI, &diaI) != 3 ||
       sscanf(dataFinal.c_str(), "%d-%d-%d", &anoF, &mesF, &diaF) != 3) {
-    return 0;  // erro ao converter
+    return 0;
   }
 
   struct tm tmInicial = {0};
@@ -439,7 +436,7 @@ void setup() {
     Serial.println("Erro ao montar SPIFFS");
     return;
   }
-  WiFi.begin(ssid, password); // Inicializa WiFi
+  WiFi.begin(ssid, password);
   ultimoTempoWiFi = millis() - intervaloWiFi;
   codigo = carregarCodigo(code);
   carregarConfig(config);

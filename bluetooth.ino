@@ -39,8 +39,8 @@
 // ======================================================================
 DHT dht1(Sensor1, DHTTYPE);
 DHT dht2(Sensor2, DHTTYPE);
-DHT dht3(Sensor3, DHTTYPE);
-DHT dht4(Sensor4, DHTTYPE);
+//DHT dht3(Sensor3, DHTTYPE);
+//DHT dht4(Sensor4, DHTTYPE);
 
 DimmableLight light(LIGHT_PIN);
 LiquidCrystal_I2C lcd(0x27, 20, 4);
@@ -96,75 +96,83 @@ void exibirMensagemLCD(String msg, int linha, int tempo) {
 // ======================================================================
 // CLASSE DE CALLBACK BLE - MODIFICADA PARA ACEITAR DADOS INDIVIDUAIS
 // ======================================================================
+// ======================================================================
+// CLASSE DE CALLBACK BLE - COM LOG DE DEPURAÇÃO
+// ======================================================================
 class MyCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      std::string value = pCharacteristic->getValue();
-      bool needsRestart = false;
+  void onWrite(BLECharacteristic *pCharacteristic) {
+    // --- MODIFICAÇÃO: Log para confirmar que a função foi chamada ---
+    Serial.println("--- onWrite callback ACIONADO! ---");
 
-      if (value.length() > 0) {
-        Serial.println("*********");
-        Serial.print("Dado recebido via BLE: ");
-        Serial.println(value.c_str());
+    std::string value = pCharacteristic->getValue();
+    bool needsRestart = false;
 
-        StaticJsonDocument<256> newConfigDoc;
-        DeserializationError error = deserializeJson(newConfigDoc, value);
+    if (value.length() > 0) {
+      Serial.println("*********");
+      Serial.print("Dado recebido via BLE: ");
+      Serial.println(value.c_str());
 
-        if (error) {
-          Serial.print("Falha ao parsear JSON: ");
-          Serial.println(error.c_str());
-          exibirMensagemLCD("Erro no formato!", 1, 2000);
-          return;
+      StaticJsonDocument<256> newConfigDoc;
+      DeserializationError error = deserializeJson(newConfigDoc, value);
+
+      if (error) {
+        Serial.print("Falha ao parsear JSON: ");
+        Serial.println(error.c_str());
+        exibirMensagemLCD("Erro no formato!", 1, 2000);
+        return;
+      }
+
+      // --- LÓGICA PARA ATUALIZAR WIFI (SSID E/OU SENHA) ---
+      if (newConfigDoc.containsKey("ssid") || newConfigDoc.containsKey("pass")) {
+        // 1. Carrega a configuração de WiFi atual do arquivo
+        File file = SPIFFS.open(wifi_config, "r");
+        StaticJsonDocument<200> wifiDoc;
+        if (file) {
+          deserializeJson(wifiDoc, file);
+          file.close();
         }
 
-        // --- LÓGICA PARA ATUALIZAR WIFI (SSID E/OU SENHA) ---
-        if (newConfigDoc.containsKey("ssid") || newConfigDoc.containsKey("pass")) {
-          // 1. Carrega a configuração de WiFi atual do arquivo
-          File file = SPIFFS.open(wifi_config, "r");
-          StaticJsonDocument<200> wifiDoc;
-          if (file) {
-            deserializeJson(wifiDoc, file);
-            file.close();
-          }
-
-          // 2. Atualiza os campos com os novos valores recebidos
-          if (newConfigDoc.containsKey("ssid")) {
-            wifiDoc["ssid"] = newConfigDoc["ssid"].as<String>();
-            Serial.println("SSID atualizado.");
-          }
-          if (newConfigDoc.containsKey("pass")) {
-            wifiDoc["pass"] = newConfigDoc["pass"].as<String>();
-            Serial.println("Senha atualizada.");
-          }
-
-          // 3. Salva o arquivo de configuração de volta
-          file = SPIFFS.open(wifi_config, "w");
-          if (file) {
-            serializeJson(wifiDoc, file);
-            file.close();
-            Serial.println("Configuracao WiFi salva!");
-            needsRestart = true;
-          } else {
-            Serial.println("Erro ao salvar config WiFi.");
-          }
+        // 2. Atualiza os campos com os novos valores recebidos
+        if (newConfigDoc.containsKey("ssid")) {
+          wifiDoc["ssid"] = newConfigDoc["ssid"].as<String>();
+          Serial.println("SSID atualizado.");
         }
-        
-        // --- LÓGICA PARA ATUALIZAR O DIA ---
-        if (newConfigDoc.containsKey("dia")) {
-          dia = newConfigDoc["dia"];
-          salvarConfig(config); // Salva no arquivo de config geral
-          Serial.print("Dia atualizado para: ");
-          Serial.println(dia);
+        if (newConfigDoc.containsKey("pass")) {
+          wifiDoc["pass"] = newConfigDoc["pass"].as<String>();
+          Serial.println("Senha atualizada.");
+        }
+
+        // 3. Salva o arquivo de configuração de volta
+        file = SPIFFS.open(wifi_config, "w");
+        if (file) {
+          serializeJson(wifiDoc, file);
+          file.close();
+          Serial.println("Configuracao WiFi salva!");
           needsRestart = true;
-        }
-
-        // Se qualquer configuração foi alterada, reinicia
-        if (needsRestart) {
-          exibirMensagemLCD("Configurado! ", 1, 1500);
-          exibirMensagemLCD("Reiniciando...", 1, 2000);
-          ESP.restart();
+        } else {
+          Serial.println("Erro ao salvar config WiFi.");
         }
       }
+      
+      // --- LÓGICA PARA ATUALIZAR O DIA ---
+      if (newConfigDoc.containsKey("dia")) {
+        dia = newConfigDoc["dia"];
+        salvarConfig(config); // Salva no arquivo de config geral
+        Serial.print("Dia atualizado para: ");
+        Serial.println(dia);
+        needsRestart = true;
+      }
+
+      // Se qualquer configuração foi alterada, reinicia
+      if (needsRestart) {
+        exibirMensagemLCD("Configurado! ", 1, 1500);
+        exibirMensagemLCD("Reiniciando...", 1, 2000);
+        ESP.restart();
+      }
+    } else {
+        Serial.println("onWrite acionado, mas o valor recebido estava vazio.");
     }
+  }
 };
 
 // ======================================================================
@@ -220,7 +228,7 @@ int calcularBrilho(float tempMin, float tempMax, float temperaturaAtual) {
   return brilho;
 }
 
-void atualizarLCD(float temperatura, float s1, float s2, float s3, float s4, int brilho) {
+void atualizarLCD(float temperatura, float s1, float s2, int brilho) {
   int percent = map(brilho, 0, 255, 0, 100);
   
   lcd.clear();
@@ -583,7 +591,6 @@ void setup() {
   carregarConfig(config);
 
   // --- INICIALIZA O BLUETOOTH COM O NOME DINÂMICO ---
-  exibirMensagemLCD("Iniciando BLE...", 0, 1000);
   BLEDevice::init(codigo.c_str()); // <--- USA O CÓDIGO COMO NOME
   BLEServer *pServer = BLEDevice::createServer();
   BLEService *pService = pServer->createService(SERVICE_UUID);
@@ -600,14 +607,12 @@ void setup() {
   Serial.print("Nome do dispositivo BLE: ");
   Serial.println(codigo);
   
-  exibirMensagemLCD("BLE Ativo:", 0, 2000);
-  exibirMensagemLCD(codigo, 1, 3000);
 
   // --- INICIALIZA O RESTANTE DOS COMPONENTES ---
   dht1.begin();
   dht2.begin();
-  dht3.begin();
-  dht4.begin();
+  //dht3.begin();
+  //dht4.begin();
   pinMode(RELE_PIN, OUTPUT);
   DimmableLight::setSyncPin(Z_C_PIN);
   DimmableLight::begin();
@@ -633,10 +638,10 @@ void loop() {
   float umidade1 = dht1.readHumidity();
   float temperatura2 = dht2.readTemperature();
   float umidade2 = dht2.readHumidity();
-  float temperatura3 = dht3.readTemperature();
-  float umidade3 = dht3.readHumidity();
-  float temperatura4 = dht4.readTemperature();
-  float umidade4 = dht4.readHumidity();
+  //float temperatura3 = dht3.readTemperature();
+  //float umidade3 = dht3.readHumidity();
+  //float temperatura4 = dht4.readTemperature();
+  //float umidade4 = dht4.readHumidity();
   int brilho = 0;
   float tsoma = 0;
   float tdivisao = 0;
@@ -655,18 +660,18 @@ void loop() {
   } else {
     temperatura2 = NAN;
   }
-  if (!isnan(temperatura3)) {
-    tsoma += temperatura3;
-    tdivisao += 1;
-  } else {
-    temperatura3 = NAN;
-  }
-  if (!isnan(temperatura4)) {
-    tsoma += temperatura4;
-    tdivisao += 1;
-  } else {
-    temperatura4 = NAN;
-  }
+  //if (!isnan(temperatura3)) {
+  //  tsoma += temperatura3;
+  //  tdivisao += 1;
+  //} else {
+  //  temperatura3 = NAN;
+  //}
+  //if (!isnan(temperatura4)) {
+  //  tsoma += temperatura4;
+  //  tdivisao += 1;
+  //} else {
+  //  temperatura4 = NAN;
+  //}
   if (tdivisao >= 1) {
     temperatura = tsoma / tdivisao;  
   } else {
@@ -687,18 +692,18 @@ void loop() {
   } else {
     umidade2 = NAN;
   }
-  if (!isnan(umidade3)) {
-    usoma += umidade3;
-    udivisao += 1;
-  } else {
-    umidade3 = NAN;
-  }
-  if (!isnan(umidade4)) {
-    usoma += umidade4;
-    udivisao += 1;
-  } else {
-    umidade4 = NAN;
-  }
+  //if (!isnan(umidade3)) {
+  //  usoma += umidade3;
+  //  udivisao += 1;
+  //} else {
+  //  umidade3 = NAN;
+  //}
+  //if (!isnan(umidade4)) {
+  //  usoma += umidade4;
+  //  udivisao += 1;
+  //} else {
+  //  umidade4 = NAN;
+  //}
   if (udivisao >= 1) {
     umidade = usoma / udivisao;  
   } else {
@@ -720,11 +725,11 @@ void loop() {
     enviarDadosSupabase(temperatura, brilho, umidade, estadoRele);
     if (millis() - tempoUltimaTela >= intervaloTela) {
       tempoUltimaTela = millis();
-      atualizarLCD(temperatura, temperatura1, temperatura2, temperatura3, temperatura4, brilho);
+      atualizarLCD(temperatura, temperatura1, temperatura2, brilho);
     }
   } else {
     brilho = 0;
-    atualizarLCD(temperatura, temperatura1, temperatura2, temperatura3, temperatura4, brilho);
+    atualizarLCD(temperatura, temperatura1, temperatura2, brilho);
     Serial.println("Erro na leitura do DHT");
   }
 

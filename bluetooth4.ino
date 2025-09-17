@@ -680,7 +680,8 @@ void loop() {
       digitalWrite(RELE_PIN, HIGH);
       estadoRele = 0;
     }
-
+    
+    enviarDadosSupabase(temperatura, brilho, umidade, estadoRele);
     if (millis() - tempoUltimaTela >= intervaloTela) {
       tempoUltimaTela = millis();
       atualizarLCD(temperatura, temperatura1, temperatura2, brilho);
